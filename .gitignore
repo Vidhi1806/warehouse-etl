@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+build/
+*.sqlite*
+.env
+.env.*
+secrets/
