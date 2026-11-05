@@ -6,7 +6,7 @@ import sqlite3
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
-from sources import FIELDS, configured_rows, csv_rows
+from sources import FIELDS, configured_rows, csv_rows, required_env
 
 ROOT = Path(__file__).resolve().parent
 
@@ -72,11 +72,17 @@ def main():
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument("--source", type=Path, default=ROOT / "data" / "checkouts.csv")
     inputs.add_argument("--config", type=Path, help="JSON configuration of sources to combine")
-    parser.add_argument("--database", type=Path, default=ROOT / "build" / "lending.sqlite")
+    targets = parser.add_mutually_exclusive_group()
+    targets.add_argument("--database", type=Path, default=ROOT / "build" / "lending.sqlite")
+    targets.add_argument("--destination-url-env", help="environment variable holding a SQL Server SQLAlchemy URL")
     args = parser.parse_args()
     try:
         source = configured_rows(args.config) if args.config else args.source
-        rows = refresh(source, args.database)
+        if args.destination_url_env:
+            from destinations import refresh_sql_server
+            rows = refresh_sql_server(read_checkouts(source), required_env(args.destination_url_env))
+        else:
+            rows = refresh(source, args.database)
     except Exception:
         # Connector errors can contain service URLs or authentication details.
         # Keep public console output free of those details.
