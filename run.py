@@ -1,34 +1,37 @@
-"""Refresh a local lending warehouse from a checkout CSV snapshot."""
+"""Refresh a lending warehouse from files, SQL, Google Sheets or SFTP."""
 
 import argparse
 import csv
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from sources import FIELDS, configured_rows, csv_rows
 
 ROOT = Path(__file__).resolve().parent
-FIELDS = ("ticket_code", "kit_code", "kit_label", "kit_family", "loan_day", "days_out")
 
 
 def read_checkouts(source):
     """Yield validated rows and identify malformed records by line number."""
-    with source.open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream, strict=True)
-        if reader.fieldnames != list(FIELDS):
-            raise ValueError(f"expected CSV header {','.join(FIELDS)}")
-        for row in reader:
-            if None in row or any(not (row[name] or "").strip() for name in FIELDS):
-                raise ValueError(f"line {reader.line_num}: expected six nonempty fields")
-            ticket, kit, label, family, day, duration = (row[name].strip() for name in FIELDS)
-            try:
-                canonical_day = date.fromisoformat(day).isoformat()
-                days_out = int(duration)
-                if day != canonical_day or not 1 <= days_out <= 2147483647:
-                    raise ValueError
-            except ValueError as error:
-                raise ValueError(f"line {reader.line_num}: invalid loan_day or days_out") from error
-            yield ticket, kit, label, family, canonical_day, days_out
+    records = csv_rows(source) if isinstance(source, Path) else source
+    for number, row in enumerate(records, start=2):
+        values = [str(row.get(name) if row.get(name) is not None else "").strip() for name in FIELDS]
+        if not all(values):
+            raise ValueError(f"record {number}: expected six nonempty fields")
+        ticket, kit, label, family, day, duration = values
+        raw_day = row.get("loan_day")
+        if isinstance(raw_day, datetime):
+            day = raw_day.date().isoformat()
+        elif isinstance(raw_day, date):
+            day = raw_day.isoformat()
+        try:
+            canonical_day = date.fromisoformat(day).isoformat()
+            days_out = int(duration)
+            if day != canonical_day or not 1 <= days_out <= 2147483647:
+                raise ValueError
+        except ValueError as error:
+            raise ValueError(f"record {number}: invalid loan_day or days_out") from error
+        yield ticket, kit, label, family, canonical_day, days_out
 
 
 def refresh(source, database):
@@ -66,13 +69,18 @@ def refresh(source, database):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=ROOT / "data" / "checkouts.csv")
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--source", type=Path, default=ROOT / "data" / "checkouts.csv")
+    inputs.add_argument("--config", type=Path, help="JSON configuration of sources to combine")
     parser.add_argument("--database", type=Path, default=ROOT / "build" / "lending.sqlite")
     args = parser.parse_args()
     try:
-        rows = refresh(args.source, args.database)
-    except (ValueError, csv.Error, OSError, sqlite3.Error) as error:
-        parser.exit(1, f"Refresh failed: {error}\n")
+        source = configured_rows(args.config) if args.config else args.source
+        rows = refresh(source, args.database)
+    except Exception:
+        # Connector errors can contain service URLs or authentication details.
+        # Keep public console output free of those details.
+        parser.exit(1, "Refresh failed. Check source configuration, access and input records.\n")
     print("Month    Family           Loans  Loan days")
     for month, family, loans, days in rows:
         print(f"{month}  {family:<15}  {loans:>4}  {days:>9}")

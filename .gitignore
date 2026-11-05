@@ -5,3 +5,5 @@ build/
 .env
 .env.*
 secrets/
+*.inspect.ndjson
+config/*.local.json
