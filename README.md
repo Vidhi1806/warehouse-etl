@@ -55,7 +55,30 @@ python run.py
 python run.py --source example.csv --database build/example.sqlite
 ```
 
-## Warehouse flow
+## Load into SQL Server
+
+Install Microsoft ODBC Driver 18 for SQL Server on the machine running the pipeline, then install the Python dependencies.
+
+```sh
+python -m pip install -r requirements-sqlserver.txt
+```
+
+Set DESTINATION_DATABASE_URL to a SQLAlchemy SQL Server URL. For Windows integrated authentication in PowerShell, use your own server and an existing dedicated warehouse database.
+
+```powershell
+$env:DESTINATION_DATABASE_URL = 'mssql+pyodbc://@localhost/kit_warehouse?driver=ODBC+Driver+18+for+SQL+Server&trusted_connection=yes'
+python run.py --config config/services.local.json --destination-url-env DESTINATION_DATABASE_URL
+```
+
+For the synthetic local sources, run prepare_demo.py and use config/demo.json instead. SQL authentication can also be supplied through an environment variable using a correctly URL-encoded SQLAlchemy connection URL.
+
+The destination writer in destinations.py creates dbo.checkout_stage, dbo.kit_catalog and dbo.kit_loan in the selected database and replaces their rows on each successful refresh. It creates dbo.monthly_lending using sql/sqlserver_report.sql and runs sql/sqlserver_refresh.sql for the transformations. Use a dedicated database because those table names are owned by this example.
+
+The database must already exist. The destination account needs table and view creation/alteration, data read/write permissions and permission to acquire an application lock. SQL Server 2016 SP1 or later supports the report's CREATE OR ALTER VIEW statement. The writer serializes refreshes with a transaction-owned application lock and rolls back failed snapshots. Source and destination connection URLs can point to different servers.
+
+The SQL Server writer has mocked transaction and SQL compilation tests. Live execution requires an available SQL Server, ODBC driver and your connection settings.
+
+## Transform and report
 
 Adapters extract records and shared validation checks their fields. The combined snapshot enters checkout_stage. The transformations in sql/refresh.sql build kit_catalog and kit_loan, linked by a foreign key. The monthly_lending view aggregates by checkout month and kit family.
 
