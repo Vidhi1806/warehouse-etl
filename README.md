@@ -1,4 +1,4 @@
-# Pocket Warehouse ETL
+# Warehouse ETL
 
 A configurable Python ETL example combining CSV, Excel, SQL databases, Google Sheets and SFTP deliveries into a SQLite warehouse. A fictional kit lending library supplies eight checkouts across four kits, totaling 32 loan days.
 
